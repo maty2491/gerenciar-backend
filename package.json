@@ -1,0 +1,26 @@
+{
+  "name": "gerenciar",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "node --watch index.js",
+    "start": "node index.js",
+    "seed:admin": "node src/scripts/seedAdminUser.js",
+    "seed:kpi": "node src/scripts/seedKpiData.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "description": "",
+  "dependencies": {
+    "express": "^5.2.1",
+    "firebase-admin": "^13.6.0",
+    "mongodb": "^7.2.0",
+    "mongoose": "^9.6.2"
+  },
+  "devDependencies": {
+    "dotenv": "^17.4.2"
+  }
+}
