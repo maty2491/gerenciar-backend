@@ -16,7 +16,7 @@ app.use(express.urlencoded({ extended: true }))
 
 const allowedOrigins = [
     "http://localhost:5173",
-    "https://gerenciarsrl-qdetvolta-maty2491s-projects.vercel.app"
+    "https://gerenciarsrl.vercel.app"
 ]
 
 app.use((req, res, next) => {
