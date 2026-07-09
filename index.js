@@ -18,17 +18,43 @@ const app = express()
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
-const allowedOrigins = [
+const normalizeOrigin = (origin = "") => origin.trim().replace(/\/$/, "").toLowerCase()
+
+const configuredOrigins = (process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((origin) => normalizeOrigin(origin))
+    .filter(Boolean)
+
+const allowedOrigins = new Set([
     "http://localhost:5173",
-    "https://gerenciarsrl.vercel.app"
-]
+    "http://127.0.0.1:5173",
+    "https://gerenciarsrl.vercel.app",
+    ...configuredOrigins
+])
+
+const isAllowedOrigin = (origin) => {
+    const normalizedOrigin = normalizeOrigin(origin)
+
+    if (!normalizedOrigin) {
+        return false
+    }
+
+    if (allowedOrigins.has(normalizedOrigin)) {
+        return true
+    }
+
+    return normalizedOrigin.endsWith(".vercel.app")
+}
 
 app.use((req, res, next) => {
     const origin = req.headers.origin
-    if (allowedOrigins.includes(origin)) {
+    const requestedHeaders = req.headers["access-control-request-headers"]
+
+    if (isAllowedOrigin(origin)) {
         res.header("Access-Control-Allow-Origin", origin)
+        res.header("Vary", "Origin")
     }
-    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization")
+    res.header("Access-Control-Allow-Headers", requestedHeaders || "Origin, X-Requested-With, Content-Type, Accept, Authorization")
     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 
     if (req.method === "OPTIONS") {
