@@ -1,20 +1,30 @@
-
 import express from "express"
-import { createTaskRecord, getTaskHistoryByAgent, getTaskAnalytics } from "../controllers/taskController.js"
-import { verifyTokenMiddleware, requireRoles, requireSector } from "../middlewares/verifyTokenMiddleware.js"
+import {
+    createMonthlyPerformance,
+    createMonthlyQualitativePerformance,
+    getMonthlyPerformanceByAgent,
+    getMonthlyQualitativePerformanceByAgent,
+    createPerformanceIncident,
+    getPerformanceIncidentsByAgent,
+    getTaskAnalytics,
+    getMonthlyKpiSnapshotByAgent,
+    getGroupMonthlyKpiReport
+} from "../controllers/taskController.js"
+import { verifyTokenMiddleware, requireOperationalUser, requireRoles } from "../middlewares/verifyTokenMiddleware.js"
 
 const taskRouter = express.Router()
 
-// 1. Primero validamos que el usuario esté logueado con Firebase
 taskRouter.use(verifyTokenMiddleware)
+taskRouter.use(requireOperationalUser)
 
-// 2. Registrar una métrica: Permitimos tanto a administrador como a encargado
-taskRouter.post("/record", requireRoles(["administrador", "encargado"]), createTaskRecord)
-
-// 3. 📈 NUEVA RUTA DE ANALÍTICAS: Va acá arriba para ganarle al parámetro dinámico
+taskRouter.post("/monthly", requireRoles(["administrador", "encargado"]), createMonthlyPerformance)
+taskRouter.get("/monthly/:agentId", requireRoles(["administrador", "encargado"]), getMonthlyPerformanceByAgent)
+taskRouter.get("/monthly/:agentId/snapshot", requireRoles(["administrador", "encargado"]), getMonthlyKpiSnapshotByAgent)
+taskRouter.post("/qualitative", requireRoles(["administrador", "encargado"]), createMonthlyQualitativePerformance)
+taskRouter.get("/qualitative/:agentId", requireRoles(["administrador", "encargado"]), getMonthlyQualitativePerformanceByAgent)
+taskRouter.post("/incidents", requireRoles(["administrador", "encargado"]), createPerformanceIncident)
+taskRouter.get("/incidents/:agentId", requireRoles(["administrador", "encargado"]), getPerformanceIncidentsByAgent)
 taskRouter.get("/analytics", requireRoles(["administrador", "encargado"]), getTaskAnalytics)
-
-// 4. Ver el historial de un empleado: Ambos roles pueden (Queda abajo de todo)
-taskRouter.get("/history/:agentId", requireRoles(["administrador", "encargado"]), getTaskHistoryByAgent)
+taskRouter.get("/reports/group", requireRoles(["administrador", "encargado"]), getGroupMonthlyKpiReport)
 
 export default taskRouter

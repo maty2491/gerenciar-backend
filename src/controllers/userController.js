@@ -1,5 +1,7 @@
 import {
+    assignManagerToSectorService,
     createUserService,
+    deactivateUserService,
     deleteUserService,
     getCurrentUserService,
     getUserByIdService,
@@ -57,6 +59,31 @@ export const updateUser = async (req, res) => {
     }
 }
 
+export const assignManagerToSector = async (req, res) => {
+    try {
+        const { id } = req.params
+        const { sector, replaceCurrent } = req.body
+        const result = await assignManagerToSectorService({
+            userId: id,
+            sector,
+            replaceCurrent
+        })
+        res.status(200).json(result)
+    } catch (error) {
+        handleError(error, res)
+    }
+}
+
+export const deactivateUser = async (req, res) => {
+    try {
+        const { id } = req.params
+        const result = await deactivateUserService(id)
+        res.status(200).json(result)
+    } catch (error) {
+        handleError(error, res)
+    }
+}
+
 export const deleteUser = async (req, res) => {
     try {
         const { id } = req.params
@@ -67,7 +94,7 @@ export const deleteUser = async (req, res) => {
     }
 }
 
-export const logout = async (req, res) => {
+export const logout = async (_req, res) => {
     return res.status(200).json({
         message: "Sesion cerrada en el cliente"
     })

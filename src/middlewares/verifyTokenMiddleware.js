@@ -1,5 +1,6 @@
 import { firebaseAuth } from "../config/firebase.js"
 import { findOrCreateUserFromToken } from "../services/authService.js"
+import { PENDING_SECTOR } from "../constants/sectors.js"
 
 export const verifyTokenMiddleware = async (req, res, next) => {
     try {
@@ -12,6 +13,10 @@ export const verifyTokenMiddleware = async (req, res, next) => {
         const token = authHeader.split(" ")[1]
         const decodedToken = await firebaseAuth.verifyIdToken(token)
         const user = await findOrCreateUserFromToken(decodedToken)
+
+        if (user.status === "inactivo") {
+            return res.status(403).json({ message: "Usuario inactivo. Contacte al administrador." })
+        }
 
         req.auth = decodedToken
         req.user = user
@@ -56,6 +61,18 @@ export const requirePermission = (permission) => {
     }
 }
 
+export const requireOperationalUser = (req, res, next) => {
+    if (!req.user) {
+        return res.status(403).json({ message: "Acceso denegado" })
+    }
+
+    if (req.user.role === "general" || req.user.sector === PENDING_SECTOR) {
+        return res.status(403).json({ message: "Solicite su sector al administrador" })
+    }
+
+    next()
+}
+
 // Middleware para permitir el acceso solo a ciertos roles
 export const requireRoles = (allowedRoles) => {
     return (req, res, next) => {
@@ -74,8 +91,8 @@ export const requireSector = (req, res, next) => {
     }
 
     // Si es encargado pero no tiene sector en la BD, bloqueamos por seguridad.
-    if (!req.user || !req.user.sector) {
-        return res.status(403).json({ message: "Acceso denegado: El usuario no tiene un sector asignado." })
+    if (!req.user || !req.user.sector || req.user.sector === PENDING_SECTOR || req.user.role === "general") {
+        return res.status(403).json({ message: "Solicite su sector al administrador" })
     }
 
     next()

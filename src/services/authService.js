@@ -1,6 +1,5 @@
 import User from "../models/userModel.js"
-
-const defaultSector = process.env.DEFAULT_USER_SECTOR || "general"
+import { PENDING_SECTOR } from "../constants/sectors.js"
 
 const splitFullName = (fullName = "") => {
     const [firstName, ...rest] = fullName.trim().split(" ")
@@ -14,16 +13,18 @@ const splitFullName = (fullName = "") => {
 export const findOrCreateUserFromToken = async (decodedToken) => {
     const { uid, email, name } = decodedToken
 
-    if (!uid || !email || !name) {
+    if (!uid || !email) {
         const error = new Error("Token invalido: faltan datos de usuario")
         error.statusCode = 401
         throw error
     }
 
+    const normalizedEmail = email.toLowerCase()
+
     let user = await User.findOne({ firebaseUid: uid })
 
     if (!user) {
-        user = await User.findOne({ email })
+        user = await User.findOne({ email: normalizedEmail })
     }
 
     if (user && !user.firebaseUid) {
@@ -33,23 +34,30 @@ export const findOrCreateUserFromToken = async (decodedToken) => {
     }
 
     if (user) {
+        if (user.status === "inactivo") {
+            const error = new Error("Usuario inactivo. Contacte al administrador.")
+            error.statusCode = 403
+            throw error
+        }
         return user
     }
 
-    const { firstName, lastName } = splitFullName(name)
+    const fallbackName = name || normalizedEmail.split("@")[0] || "usuario"
+    const { firstName, lastName } = splitFullName(fallbackName)
 
     const newUser = new User({
         firebaseUid: uid,
-        email: email.toLowerCase(),
+        email: normalizedEmail,
         name: firstName,
         lastName: lastName,
-        role: "encargado",
-        sector: defaultSector,
+        role: "general",
+        sector: PENDING_SECTOR,
         permissions: {
-            canCreateTasks: true,
+            canCreateTasks: false,
             canDeleteTasks: false,
             canAssignRoles: false
-        }
+        },
+        status: "activo"
     })
 
     return newUser.save()

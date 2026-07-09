@@ -1,81 +1,90 @@
-import express from "express";
-import Event from "../models/eventModel.js";
-import { verifyTokenMiddleware, requireRoles } from "../middlewares/verifyTokenMiddleware.js";
+import express from "express"
+import Event from "../models/eventModel.js"
+import { verifyTokenMiddleware, requireOperationalUser, requireRoles } from "../middlewares/verifyTokenMiddleware.js"
+import { validateObjectId } from "../utils/validateObjectId.js"
 
-const router = express.Router();
+const router = express.Router()
 
-// Aplicamos la verificación de token a TODO el enrutador. 
-// Nadie que no esté logueado en Firebase puede tocar este archivo.
-router.use(verifyTokenMiddleware);
+router.use(verifyTokenMiddleware)
 
-// 1️⃣ CREAR UN NUEVO EVENTO (POST /api/events)
-// Usamos requireRoles para que SOLO el "administrador" y el "encargado" puedan agendar eventos
-router.post("/", requireRoles(["administrador", "encargado"]), async (req, res) => {
+router.post("/", requireOperationalUser, requireRoles(["administrador", "encargado"]), async (req, res) => {
     try {
-        const { title, description, fechaEvento, horaEvento, type } = req.body;
+        const { title, description, eventDateTime, type, visibilityType = "public", visibleSectors = [] } = req.body
 
-        if (!title || !fechaEvento || !horaEvento) {
-            return res.status(400).json({ success: false, message: "Título, fecha y hora son obligatorios." });
+        if (!title || !eventDateTime) {
+            return res.status(400).json({ success: false, message: "Titulo y fecha son obligatorios." })
+        }
+
+        if (visibilityType === "private" && (!Array.isArray(visibleSectors) || visibleSectors.length === 0)) {
+            return res.status(400).json({ success: false, message: "Debe indicar al menos un sector para eventos privados." })
+        }
+
+        const normalizedVisibleSectors = visibilityType === "private"
+            ? visibleSectors.map((sector) => sector.toLowerCase().trim())
+            : []
+
+        if (req.user.role === "encargado" && visibilityType === "private" && normalizedVisibleSectors.some((sector) => sector !== req.user.sector)) {
+            return res.status(403).json({ success: false, message: "Solo puedes crear eventos privados para tu propio sector." })
         }
 
         const newEvent = new Event({
             title,
             description,
-            fechaEvento,
-            horaEvento,
+            eventDateTime,
             type,
-            // 🎯 CAPTURA AUTOMÁTICA Y SEGURA: Guardamos el nombre del usuario logueado en la BD
-            createdBy: req.user?.name || "Usuario" 
-        });
+            visibilityType,
+            visibleSectors: normalizedVisibleSectors,
+            createdBy: `${req.user?.name || ""} ${req.user?.lastName || ""}`.trim() || "Usuario",
+            createdById: req.user?._id
+        })
 
-        await newEvent.save();
-        res.status(201).json({ success: true, data: newEvent, message: "Evento programado con éxito." });
+        await newEvent.save()
+        res.status(201).json({ success: true, data: newEvent, message: "Evento programado con exito." })
     } catch (error) {
-        console.error("🚨 Error al crear evento:", error);
-        res.status(500).json({ success: false, message: "Error interno del servidor al guardar el evento." });
+        res.status(500).json({ success: false, message: "Error interno del servidor al guardar el evento.", error: error.message })
     }
-});
+})
 
-// 2️⃣ OBTENER EVENTOS (GET /api/events)
-// Cualquiera que esté logueado (admin, encargado o subordinado si existiera) puede ver la agenda
 router.get("/", async (req, res) => {
     try {
-        const { all } = req.query;
-        let query = {};
+        if (req.user.role === "general") {
+            return res.status(403).json({ success: false, message: "Solicite su sector al administrador" })
+        }
+
+        const { all } = req.query
+        const query = {}
+
+        if (req.user.role !== "administrador") {
+            query.$or = [
+                { visibilityType: "public" },
+                { visibilityType: "private", visibleSectors: req.user.sector }
+            ]
+        }
 
         if (all !== "true") {
-            // Buscamos la fecha local de hoy basada en tu zona horaria (Argentina - ART)
-            const hoy = new Date();
-            const fechaHoyString = hoy.toLocaleDateString("en-CA"); // Escupe "YYYY-MM-DD" perfecto
-            
-            query = { fechaEvento: { $gte: fechaHoyString } };
+            query.eventDateTime = { $gte: new Date() }
         }
 
-        const events = await Event.find(query).sort({ fechaEvento: 1, horaEvento: 1 });
-        
-        res.status(200).json({ success: true, data: events });
+        const events = await Event.find(query).sort({ eventDateTime: 1 })
+        res.status(200).json({ success: true, data: events })
     } catch (error) {
-        console.error("🚨 Error al obtener eventos:", error);
-        res.status(500).json({ success: false, message: "Error al obtener los eventos de la base de datos." });
+        res.status(500).json({ success: false, message: "Error al obtener los eventos de la base de datos.", error: error.message })
     }
-});
+})
 
-// 3️⃣ ELIMINAR UN EVENTO (DELETE /api/events/:id)
-// Al igual que la creación, solo roles jerárquicos limpian la agenda
-router.delete("/:id", requireRoles(["administrador", "encargado"]), async (req, res) => {
+router.delete("/:id", requireOperationalUser, requireRoles(["administrador", "encargado"]), async (req, res) => {
     try {
-        const { id } = req.params;
-        const deletedEvent = await Event.findByIdAndDelete(id);
+        validateObjectId(req.params.id, "ID de evento")
+        const deletedEvent = await Event.findByIdAndDelete(req.params.id)
 
         if (!deletedEvent) {
-            return res.status(404).json({ success: false, message: "El evento no existe." });
+            return res.status(404).json({ success: false, message: "El evento no existe." })
         }
 
-        res.status(200).json({ success: true, message: "Evento eliminado correctamente de la agenda." });
+        res.status(200).json({ success: true, message: "Evento eliminado correctamente de la agenda." })
     } catch (error) {
-        console.error("Error al eliminar evento:", error);
-        res.status(500).json({ success: false, message: "Error al intentar eliminar el evento." });
+        res.status(error.statusCode || 500).json({ success: false, message: "Error al intentar eliminar el evento.", error: error.message })
     }
-});
+})
 
-export default router;
+export default router

@@ -1,20 +1,25 @@
-import Agent from "../models/agentModel.js" // O { Agent } según cómo lo hayas solucionado antes
+import Agent from "../models/agentModel.js"
+import User from "../models/userModel.js"
+import { validateObjectId } from "../utils/validateObjectId.js"
+import { OPERATIVE_SECTORS } from "../constants/sectors.js"
 
-// 1. OBTENER AGENTES (SUBORDINADOS)
+const getManagerBySector = async (sector) => {
+    return User.findOne({ role: "encargado", sector, status: "activo" })
+}
+
 export const getAgents = async (req, res) => {
     try {
-        let query = {}
-        if (req.user.role === "encargado") {
-            query.sector = req.user.sector
-        }
-        const agents = await Agent.find(query)
+        const query = req.user.role === "encargado"
+            ? { sector: req.user.sector, encargadoId: req.user._id, status: "activo" }
+            : { status: "activo" }
+
+        const agents = await Agent.find(query).sort({ apellido: 1, nombre: 1 })
         return res.status(200).json(agents)
     } catch (error) {
         return res.status(500).json({ message: error.message })
     }
 }
 
-// 2. CREAR AGENTE
 export const createAgent = async (req, res) => {
     try {
         const { legajo, nombre, apellido } = req.body
@@ -24,7 +29,9 @@ export const createAgent = async (req, res) => {
             nombre,
             apellido,
             sector: req.user.sector,
-            creadoPor: req.user._id
+            encargadoId: req.user._id,
+            creadoPor: req.user._id,
+            status: "activo"
         })
 
         await nuevoAgente.save()
@@ -37,17 +44,23 @@ export const createAgent = async (req, res) => {
     }
 }
 
-// 3. MODIFICAR AGENTE
 export const updateAgent = async (req, res) => {
     try {
         const { id } = req.params
-        const camposAActualizar = req.body
+        validateObjectId(id, "ID de agente")
 
-        // Si es encargado, nos aseguramos de que solo pueda editar si pertenece a su sector
-        let query = { _id: id }
-        if (req.user.role === "encargado") {
-            query.sector = req.user.sector
+        const allowedFields = ["legajo", "nombre", "apellido"]
+        const camposAActualizar = Object.fromEntries(
+            Object.entries(req.body).filter(([key]) => allowedFields.includes(key))
+        )
+
+        if (Object.keys(camposAActualizar).length === 0) {
+            return res.status(400).json({ message: "No hay campos validos para actualizar." })
         }
+
+        const query = req.user.role === "encargado"
+            ? { _id: id, sector: req.user.sector, encargadoId: req.user._id, status: "activo" }
+            : { _id: id, status: "activo" }
 
         const agenteActualizado = await Agent.findOneAndUpdate(
             query,
@@ -61,39 +74,125 @@ export const updateAgent = async (req, res) => {
 
         return res.status(200).json(agenteActualizado)
     } catch (error) {
-        return res.status(500).json({ message: error.message })
+        return res.status(error.statusCode || 500).json({ message: error.message })
     }
 }
 
-// 4. ELIMINAR AGENTE
-export const deleteAgent = async (req, res) => {
+export const deactivateAgent = async (req, res) => {
     try {
-        const { id } = req.params
+        validateObjectId(req.params.id, "ID de agente")
 
-        let query = { _id: id }
-        if (req.user.role === "encargado") {
-            query.sector = req.user.sector
-        }
+        const query = req.user.role === "encargado"
+            ? { _id: req.params.id, sector: req.user.sector, encargadoId: req.user._id }
+            : { _id: req.params.id }
 
-        const agenteEliminado = await Agent.findOneAndDelete(query)
+        const agent = await Agent.findOneAndUpdate(
+            query,
+            { $set: { status: "desvinculado" } },
+            { new: true, runValidators: true }
+        )
 
-        if (!agenteEliminado) {
+        if (!agent) {
             return res.status(404).json({ message: "Agente no encontrado o no pertenece a tu sector." })
         }
 
-        return res.status(200).json({ message: "Agente eliminado correctamente." })
+        return res.status(200).json({ message: "Agente desvinculado correctamente.", data: agent })
     } catch (error) {
-        return res.status(500).json({ message: error.message })
+        return res.status(error.statusCode || 500).json({ message: error.message })
+    }
+}
+
+export const deleteAgent = async (req, res) => {
+    return deactivateAgent(req, res)
+}
+
+export const reassignAgent = async (req, res) => {
+    try {
+        validateObjectId(req.params.id, "ID de agente")
+        const { sector } = req.body
+        const normalizedSector = sector?.toLowerCase().trim()
+
+        if (!OPERATIVE_SECTORS.includes(normalizedSector)) {
+            return res.status(400).json({ message: "Sector invalido." })
+        }
+
+        const newManager = await getManagerBySector(normalizedSector)
+        if (!newManager) {
+            return res.status(400).json({ message: `El sector ${normalizedSector} no tiene un encargado activo asignado.` })
+        }
+
+        const query = req.user.role === "encargado"
+            ? { _id: req.params.id, sector: req.user.sector, encargadoId: req.user._id, status: "activo" }
+            : { _id: req.params.id, status: "activo" }
+
+        const agent = await Agent.findOneAndUpdate(
+            query,
+            { $set: { sector: normalizedSector, encargadoId: newManager._id } },
+            { new: true, runValidators: true }
+        )
+
+        if (!agent) {
+            return res.status(404).json({ message: "Agente no encontrado o no pertenece a tu sector." })
+        }
+
+        return res.status(200).json({
+            message: "Agente reasignado correctamente.",
+            data: agent
+        })
+    } catch (error) {
+        return res.status(error.statusCode || 500).json({ message: error.message })
     }
 }
 
 export const getAgentsByManager = async (req, res) => {
     try {
-        // Buscamos los agentes cuyo campo de encargado asignado coincida
-        // Nota: Asegúrate de usar el modelo correcto (si es Agent o User)
-        const agents = await Agent.find({ encargadoId: req.params.managerId, role: "agente" });
-        return res.json(agents);
+        validateObjectId(req.params.managerId, "ID de encargado")
+
+        const managerQuery = req.user.role === "encargado"
+            ? { _id: req.user._id, role: "encargado", status: "activo" }
+            : { _id: req.params.managerId, role: "encargado", status: "activo" }
+
+        const manager = await User.findOne(managerQuery)
+        if (!manager) {
+            return res.status(404).json({ message: "Encargado no encontrado." })
+        }
+
+        const agents = await Agent.find({ encargadoId: manager._id, sector: manager.sector, status: "activo" }).sort({ apellido: 1, nombre: 1 })
+
+        return res.status(200).json({
+            sector: manager.sector,
+            encargado: manager,
+            agents
+        })
     } catch (error) {
-        return res.status(500).json({ message: "Error al obtener los agentes", error: error.message });
+        return res.status(error.statusCode || 500).json({ message: "Error al obtener los agentes", error: error.message })
     }
-};
+}
+
+export const getHierarchy = async (req, res) => {
+    try {
+        const requestedSector = req.query.sector?.toLowerCase().trim()
+
+        if (requestedSector && !OPERATIVE_SECTORS.includes(requestedSector)) {
+            return res.status(400).json({ message: "Sector invalido." })
+        }
+
+        const sectors = requestedSector ? [requestedSector] : OPERATIVE_SECTORS
+
+        const hierarchy = await Promise.all(
+            sectors.map(async (sector) => {
+                const manager = await User.findOne({ role: "encargado", sector, status: "activo" }).sort({ lastName: 1, name: 1 })
+                const agents = await Agent.find({ sector, status: "activo" }).sort({ apellido: 1, nombre: 1 })
+                return {
+                    sector,
+                    encargado: manager,
+                    agents
+                }
+            })
+        )
+
+        return res.status(200).json(hierarchy)
+    } catch (error) {
+        return res.status(500).json({ message: "Error al obtener jerarquia", error: error.message })
+    }
+}

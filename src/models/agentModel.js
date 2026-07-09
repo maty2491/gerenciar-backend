@@ -1,4 +1,5 @@
-import mongoose from "mongoose";
+import mongoose from "mongoose"
+import { OPERATIVE_SECTORS } from "../constants/sectors.js"
 
 const agentSchema = new mongoose.Schema({
   legajo: { type: String, required: true, unique: true },
@@ -7,10 +8,17 @@ const agentSchema = new mongoose.Schema({
   sector: {
     type: String,
     required: true,
-    enum: ['buenos aires', 'santa fe', 'cordoba', 'entre rios', 'corrientes', 'recepcion', 'administracion']
+    enum: OPERATIVE_SECTORS
   },
-  creadoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'user' }
-}, { timestamps: true });
+  encargadoId: { type: mongoose.Schema.Types.ObjectId, ref: "user", required: true },
+  creadoPor: { type: mongoose.Schema.Types.ObjectId, ref: "user" },
+  status: {
+    type: String,
+    enum: ["activo", "desvinculado"],
+    default: "activo",
+    required: true
+  }
+}, { timestamps: true })
 
-const Agent = mongoose.model('Agent', agentSchema);
-export default Agent;
+const Agent = mongoose.models.Agent || mongoose.model("Agent", agentSchema)
+export default Agent

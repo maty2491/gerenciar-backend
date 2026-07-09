@@ -1,87 +1,441 @@
-import Task from "../models/taskModel.js" // Tu modelo de Mongoose para KPIs
+import MonthlyPerformance from "../models/taskModel.js"
+import PerformanceIncident from "../models/performanceIncidentModel.js"
+import MonthlyQualitativePerformance from "../models/monthlyQualitativePerformanceModel.js"
 import Agent from "../models/agentModel.js"
+import Category from "../models/categoryModel.js"
 import mongoose from "mongoose"
+import { validateObjectId } from "../utils/validateObjectId.js"
 
-// 1. REGISTRAR UNA MÉTRICA / KPI (Ej: Cédulas realizadas, Embargos)
-export const createTaskRecord = async (req, res) => {
-    try {
-        const { agentId, category, subType, quantity, note } = req.body
+const getAuthorizedAgent = async (agentId, user) => {
+    validateObjectId(agentId, "ID de agente")
 
-        // Validación de seguridad: Verificamos que el agente exista y sea del mismo sector que el encargado
-        const agentExists = await Agent.findOne({ _id: agentId })
-        if (!agentExists) {
-            return res.status(404).json({ message: "Agente no encontrado." })
-        }
+    const query = user.role === "encargado"
+        ? { _id: agentId, sector: user.sector, encargadoId: user._id, status: "activo" }
+        : { _id: agentId, status: "activo" }
 
-        if (req.user.role === "encargado" && agentExists.sector !== req.user.sector) {
-            return res.status(403).json({ message: "No tienes permisos para registrar tareas a un agente de otro sector." })
-        }
+    const agent = await Agent.findOne(query)
+    if (!agent) {
+        const error = new Error("Agente no encontrado o no pertenece a tu sector.")
+        error.statusCode = 404
+        throw error
+    }
 
-        // Creamos el registro amarrándolo al sector automáticamente
-        const newTaskRecord = new Task({
-            agentId,
-            sector: agentExists.sector, // Hereda el sector del agente
-            category,
-            subType,
-            quantity,
-            note,
-            recordedBy: req.user._id // El ID del Encargado que lo carga
-        })
+    return agent
+}
 
-        await newTaskRecord.save()
-        return res.status(201).json(newTaskRecord)
-    } catch (error) {
-        return res.status(500).json({ message: error.message })
+const ensureAuthorizedAgentList = async (agentIds, user) => {
+    agentIds.forEach((id) => validateObjectId(id, "ID de agente"))
+
+    const objectIds = agentIds.map((id) => new mongoose.Types.ObjectId(id))
+    const query = user.role === "encargado"
+        ? { _id: { $in: objectIds }, sector: user.sector, encargadoId: user._id, status: "activo" }
+        : { _id: { $in: objectIds }, status: "activo" }
+
+    const agents = await Agent.find(query)
+    if (agents.length !== objectIds.length) {
+        const error = new Error("No tienes permisos para consultar metricas de agentes de otro sector.")
+        error.statusCode = 403
+        throw error
+    }
+
+    return objectIds
+}
+
+const QUALITATIVE_VALUES = ["D", "N", "S", "E"]
+
+const normalizeCategoryName = (value = "") => String(value).toLowerCase().trim()
+
+const validatePeriod = (month, year) => {
+    const normalizedMonth = Number(month)
+    const normalizedYear = Number(year)
+
+    if (!Number.isInteger(normalizedMonth) || normalizedMonth < 1 || normalizedMonth > 12) {
+        const error = new Error("Mes invalido.")
+        error.statusCode = 400
+        throw error
+    }
+
+    if (!Number.isInteger(normalizedYear) || normalizedYear < 2000) {
+        const error = new Error("Anio invalido.")
+        error.statusCode = 400
+        throw error
+    }
+
+    return { month: normalizedMonth, year: normalizedYear }
+}
+
+const getKpiDefinition = async ({ sector, category, metricType }) => {
+    const definition = await Category.findOne({
+        $or: [{ sector }, { isDefault: true }],
+        name: normalizeCategoryName(category),
+        metricType,
+        active: true
+    })
+
+    if (!definition) {
+        const error = new Error("El KPI indicado no esta configurado para el sector.")
+        error.statusCode = 400
+        throw error
+    }
+
+    return definition
+}
+
+const validateSubType = (definition, subType) => {
+    if (!subType) return
+    if (definition.subTypes.length === 0) return
+
+    const normalizedSubType = String(subType).trim()
+    if (!definition.subTypes.includes(normalizedSubType)) {
+        const error = new Error("El subtipo indicado no pertenece al KPI configurado.")
+        error.statusCode = 400
+        throw error
     }
 }
 
-// 2. OBTENER HISTORIAL DE METRICAS DE UN AGENTE
-export const getTaskHistoryByAgent = async (req, res) => {
+const groupDefinitions = (definitions) => {
+    return definitions.reduce((acc, definition) => {
+        if (!acc[definition.group]) {
+            acc[definition.group] = []
+        }
+
+        acc[definition.group].push({
+            id: definition._id,
+            name: definition.name,
+            label: definition.label || definition.name,
+            group: definition.group,
+            metricType: definition.metricType,
+            subTypes: definition.subTypes,
+            order: definition.order
+        })
+
+        return acc
+    }, {})
+}
+
+export const createMonthlyPerformance = async (req, res) => {
+    try {
+        const { agentId, month, year, category, subType, quantity, note } = req.body
+        const agent = await getAuthorizedAgent(agentId, req.user)
+        const normalizedPeriod = validatePeriod(month, year)
+        const definition = await getKpiDefinition({
+            sector: agent.sector,
+            category,
+            metricType: "numeric"
+        })
+        validateSubType(definition, subType)
+
+        const payload = {
+            agentId,
+            encargadoId: agent.encargadoId,
+            sector: agent.sector,
+            month: normalizedPeriod.month,
+            year: normalizedPeriod.year,
+            category: definition.name,
+            subType,
+            quantity,
+            note,
+            recordedBy: req.user._id
+        }
+
+        const performance = await MonthlyPerformance.findOneAndUpdate(
+            {
+                agentId,
+                month: normalizedPeriod.month,
+                year: normalizedPeriod.year,
+                category: definition.name,
+                subType: subType || null
+            },
+            payload,
+            {
+                upsert: true,
+                new: true,
+                runValidators: true,
+                setDefaultsOnInsert: true
+            }
+        )
+
+        return res.status(201).json(performance)
+    } catch (error) {
+        return res.status(error.statusCode || 500).json({ message: error.message })
+    }
+}
+
+export const createMonthlyQualitativePerformance = async (req, res) => {
+    try {
+        const { agentId, month, year, category, value, note } = req.body
+        const agent = await getAuthorizedAgent(agentId, req.user)
+        const normalizedPeriod = validatePeriod(month, year)
+        const definition = await getKpiDefinition({
+            sector: agent.sector,
+            category,
+            metricType: "qualitative"
+        })
+
+        const normalizedValue = String(value || "").trim().toUpperCase()
+        if (!QUALITATIVE_VALUES.includes(normalizedValue)) {
+            return res.status(400).json({ message: "Valor cualitativo invalido. Use D, N, S o E." })
+        }
+
+        const qualitativeMetric = await MonthlyQualitativePerformance.findOneAndUpdate(
+            {
+                agentId,
+                month: normalizedPeriod.month,
+                year: normalizedPeriod.year,
+                category: definition.name
+            },
+            {
+                agentId,
+                encargadoId: agent.encargadoId,
+                sector: agent.sector,
+                month: normalizedPeriod.month,
+                year: normalizedPeriod.year,
+                category: definition.name,
+                value: normalizedValue,
+                note,
+                recordedBy: req.user._id
+            },
+            {
+                upsert: true,
+                new: true,
+                runValidators: true,
+                setDefaultsOnInsert: true
+            }
+        )
+
+        return res.status(201).json(qualitativeMetric)
+    } catch (error) {
+        return res.status(error.statusCode || 500).json({ message: error.message })
+    }
+}
+
+export const getMonthlyPerformanceByAgent = async (req, res) => {
     try {
         const { agentId } = req.params
+        await getAuthorizedAgent(agentId, req.user)
 
-        // Validación de seguridad de sector antes de escupir los datos
-        const agentExists = await Agent.findById(agentId)
-        if (!agentExists) {
-            return res.status(404).json({ message: "Agente no encontrado." })
-        }
+        const query = { agentId }
+        if (req.query.month) query.month = Number(req.query.month)
+        if (req.query.year) query.year = Number(req.query.year)
 
-        if (req.user.role === "encargado" && agentExists.sector !== req.user.sector) {
-            return res.status(403).json({ message: "Acceso denegado: Este agente pertenece a otro sector." })
-        }
-
-        // Si pasa la validación, traemos su histórico ordenado por fecha más reciente
-        const history = await Task.find({ agentId }).sort({ createdAt: -1 })
+        const history = await MonthlyPerformance.find(query).sort({ year: -1, month: -1, category: 1, subType: 1 })
         return res.status(200).json(history)
     } catch (error) {
-        return res.status(500).json({ message: error.message })
+        return res.status(error.statusCode || 500).json({ message: error.message })
+    }
+}
+
+export const getMonthlyQualitativePerformanceByAgent = async (req, res) => {
+    try {
+        const { agentId } = req.params
+        await getAuthorizedAgent(agentId, req.user)
+
+        const query = { agentId }
+        if (req.query.month) query.month = Number(req.query.month)
+        if (req.query.year) query.year = Number(req.query.year)
+
+        const history = await MonthlyQualitativePerformance.find(query).sort({ year: -1, month: -1, category: 1 })
+        return res.status(200).json(history)
+    } catch (error) {
+        return res.status(error.statusCode || 500).json({ message: error.message })
+    }
+}
+
+export const createPerformanceIncident = async (req, res) => {
+    try {
+        const { agentId, date, incidentType, observation } = req.body
+        const agent = await getAuthorizedAgent(agentId, req.user)
+
+        const incident = new PerformanceIncident({
+            agentId,
+            encargadoId: agent.encargadoId,
+            sector: agent.sector,
+            date,
+            incidentType,
+            observation,
+            recordedBy: req.user._id
+        })
+
+        await incident.save()
+        return res.status(201).json(incident)
+    } catch (error) {
+        return res.status(error.statusCode || 500).json({ message: error.message })
+    }
+}
+
+export const getPerformanceIncidentsByAgent = async (req, res) => {
+    try {
+        const { agentId } = req.params
+        await getAuthorizedAgent(agentId, req.user)
+
+        const incidents = await PerformanceIncident.find({ agentId }).sort({ date: -1 })
+        return res.status(200).json(incidents)
+    } catch (error) {
+        return res.status(error.statusCode || 500).json({ message: error.message })
+    }
+}
+
+export const getMonthlyKpiSnapshotByAgent = async (req, res) => {
+    try {
+        const { agentId } = req.params
+        const { month, year } = req.query
+        const agent = await getAuthorizedAgent(agentId, req.user)
+        const normalizedPeriod = validatePeriod(month, year)
+
+        const [definitions, numericMetrics, qualitativeMetrics, incidents] = await Promise.all([
+            Category.find({
+                $or: [{ sector: agent.sector }, { isDefault: true }],
+                active: true
+            }).sort({ group: 1, order: 1, name: 1 }),
+            MonthlyPerformance.find({
+                agentId,
+                month: normalizedPeriod.month,
+                year: normalizedPeriod.year
+            }).sort({ category: 1, subType: 1 }),
+            MonthlyQualitativePerformance.find({
+                agentId,
+                month: normalizedPeriod.month,
+                year: normalizedPeriod.year
+            }).sort({ category: 1 }),
+            PerformanceIncident.find({
+                agentId,
+                date: {
+                    $gte: new Date(normalizedPeriod.year, normalizedPeriod.month - 1, 1),
+                    $lt: new Date(normalizedPeriod.year, normalizedPeriod.month, 1)
+                }
+            }).sort({ date: -1 })
+        ])
+
+        return res.status(200).json({
+            agent,
+            period: normalizedPeriod,
+            catalog: groupDefinitions(definitions),
+            metrics: numericMetrics,
+            qualitative: qualitativeMetrics,
+            incidents
+        })
+    } catch (error) {
+        return res.status(error.statusCode || 500).json({ message: error.message })
+    }
+}
+
+export const getGroupMonthlyKpiReport = async (req, res) => {
+    try {
+        const { month, year, agentIds } = req.query
+        const normalizedPeriod = validatePeriod(month, year)
+
+        let resolvedAgentIds = []
+        if (agentIds) {
+            const parsedAgentIds = agentIds.split(",").map((id) => id.trim()).filter(Boolean)
+            resolvedAgentIds = await ensureAuthorizedAgentList(parsedAgentIds, req.user)
+        } else {
+            const query = req.user.role === "encargado"
+                ? { sector: req.user.sector, encargadoId: req.user._id, status: "activo" }
+                : { status: "activo" }
+
+            const agents = await Agent.find(query).sort({ apellido: 1, nombre: 1 })
+            resolvedAgentIds = agents.map((agent) => agent._id)
+        }
+
+        const agents = await Agent.find({ _id: { $in: resolvedAgentIds } }).sort({ apellido: 1, nombre: 1 })
+        const agentSectors = [...new Set(agents.map((agent) => agent.sector))]
+
+        const [definitions, numericMetrics, qualitativeMetrics] = await Promise.all([
+            Category.find({
+                $or: [
+                    { sector: { $in: agentSectors } },
+                    { isDefault: true }
+                ],
+                active: true
+            }).sort({ sector: 1, group: 1, order: 1, name: 1 }),
+            MonthlyPerformance.find({
+                agentId: { $in: resolvedAgentIds },
+                month: normalizedPeriod.month,
+                year: normalizedPeriod.year
+            }).sort({ category: 1, subType: 1 }),
+            MonthlyQualitativePerformance.find({
+                agentId: { $in: resolvedAgentIds },
+                month: normalizedPeriod.month,
+                year: normalizedPeriod.year
+            }).sort({ category: 1 })
+        ])
+
+        const definitionMap = new Map(
+            definitions.map((definition) => [`${definition.sector}:${definition.name}:${definition.metricType}`, definition])
+        )
+
+        const metricsByAgent = new Map()
+        numericMetrics.forEach((metric) => {
+            const key = String(metric.agentId)
+            if (!metricsByAgent.has(key)) {
+                metricsByAgent.set(key, [])
+            }
+            metricsByAgent.get(key).push(metric)
+        })
+
+        const qualitativeByAgent = new Map()
+        qualitativeMetrics.forEach((metric) => {
+            const key = String(metric.agentId)
+            if (!qualitativeByAgent.has(key)) {
+                qualitativeByAgent.set(key, [])
+            }
+            qualitativeByAgent.get(key).push(metric)
+        })
+
+        const agentSummaries = agents.map((agent) => {
+            const numeric = metricsByAgent.get(String(agent._id)) || []
+            const qualitative = qualitativeByAgent.get(String(agent._id)) || []
+            const totalsByGroup = numeric.reduce((acc, metric) => {
+                const categoryDefinition = definitionMap.get(`${metric.sector}:${metric.category}:numeric`)
+                    || definitionMap.get(`general:${metric.category}:numeric`)
+                const group = categoryDefinition?.group || "general"
+                acc[group] = (acc[group] || 0) + metric.quantity
+                return acc
+            }, {})
+
+            return {
+                agent,
+                totals: {
+                    overall: numeric.reduce((sum, metric) => sum + metric.quantity, 0),
+                    byGroup: totalsByGroup
+                },
+                metrics: numeric,
+                qualitative
+            }
+        })
+
+        return res.status(200).json({
+            period: normalizedPeriod,
+            catalog: groupDefinitions(definitions),
+            agents: agentSummaries
+        })
+    } catch (error) {
+        return res.status(error.statusCode || 500).json({ message: error.message })
     }
 }
 
 export const getTaskAnalytics = async (req, res) => {
     try {
-        const { agents, period } = req.query;
+        const { agents, period } = req.query
 
-        if (!agents) return res.status(400).json({ message: "Agentes requeridos" });
+        if (!agents) return res.status(400).json({ message: "Agentes requeridos" })
 
-        const agentIdsArray = agents.split(",").map(id => new mongoose.Types.ObjectId(id.trim()));
+        const agentIds = agents.split(",").map((id) => id.trim()).filter(Boolean)
+        const agentIdsArray = await ensureAuthorizedAgentList(agentIds, req.user)
 
-        // Configuramos la agrupación usando createdAt (tu campo real)
-        let groupFormat = {};
-        if (period === "weekly") {
-            groupFormat = { week: { $week: "$createdAt" }, year: { $year: "$createdAt" }, agentId: "$agentId" };
-        } else if (period === "yearly") {
-            groupFormat = { year: { $year: "$createdAt" }, agentId: "$agentId" };
+        let groupFormat = {}
+        if (period === "yearly") {
+            groupFormat = { year: "$year", agentId: "$agentId" }
         } else {
-            groupFormat = { month: { $month: "$createdAt" }, year: { $year: "$createdAt" }, agentId: "$agentId" };
+            groupFormat = { month: "$month", year: "$year", agentId: "$agentId" }
         }
 
-        const analytics = await mongoose.connection.collection("registrotareas").aggregate([
+        const analytics = await MonthlyPerformance.aggregate([
             { $match: { agentId: { $in: agentIdsArray } } },
             {
                 $group: {
                     _id: groupFormat,
-                    totalQuantity: { $sum: "$quantity" } // Campo exacto que me pasaste
+                    totalQuantity: { $sum: "$quantity" }
                 }
             },
             {
@@ -93,13 +447,11 @@ export const getTaskAnalytics = async (req, res) => {
                 }
             },
             { $unwind: { path: "$agentInfo", preserveNullAndEmptyArrays: true } },
-            { $sort: { "_id.year": 1, "_id.month": 1, "_id.week": 1 } }
-        ]).toArray();
+            { $sort: { "_id.year": 1, "_id.month": 1 } }
+        ])
 
-        return res.status(200).json(analytics);
-
+        return res.status(200).json(analytics)
     } catch (error) {
-        console.error("Error en analíticas:", error);
-        return res.status(500).json({ message: "Error al obtener analíticas" });
+        return res.status(error.statusCode || 500).json({ message: error.message })
     }
-};
+}

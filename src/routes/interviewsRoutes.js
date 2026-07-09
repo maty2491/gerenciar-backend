@@ -1,22 +1,18 @@
-import express from "express";
-import { 
-    createInterview, 
+import express from "express"
+import {
+    createInterview,
     getInterviews,
     updateInterview,
     deleteInterview
-} from "../controllers/interviewController.js";
-import { verifyTokenMiddleware } from "../middlewares/verifyTokenMiddleware.js";
+} from "../controllers/interviewController.js"
+import { verifyTokenMiddleware, requireAdmin, requireOperationalUser } from "../middlewares/verifyTokenMiddleware.js"
 
-const interviewRouter = express.Router();
+const interviewRouter = express.Router()
 
-// Si querés que SÍ O SÍ haya que estar logueado para interactuar con entrevistas:
-interviewRouter.use(verifyTokenMiddleware);
+interviewRouter.use(verifyTokenMiddleware)
+interviewRouter.get("/", requireOperationalUser, getInterviews)
+interviewRouter.post("/", requireAdmin, createInterview)
+interviewRouter.put("/:id", requireAdmin, updateInterview)
+interviewRouter.delete("/:id", requireAdmin, deleteInterview)
 
-// Definición de endpoints siguiendo tu misma estética
-interviewRouter.get("/", getInterviews);       // GET /api/interviews (o la ruta que definas)
-interviewRouter.post("/", createInterview);    // POST /api/interviews
-interviewRouter.put("/:id", updateInterview); // PUT /api/interviews/:id (Para actualizar o archivar)
-interviewRouter.delete("/:id", deleteInterview); // DELETE /api/interviews/:id (Si querés eliminar definitivamente)
-
-
-export default interviewRouter;
+export default interviewRouter

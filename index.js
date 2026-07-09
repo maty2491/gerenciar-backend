@@ -2,12 +2,16 @@ import express from "express"
 import { PORT } from "./src/config/config.js"
 import { connectDB } from "./src/config/db.js"
 import userRouter from "./src/routes/userRoutes.js"
-// Importaciones con tus nombres exactos de rutas
 import agentRouter from "./src/routes/agentRoutes.js"
 import taskRouter from "./src/routes/taskRoutes.js"
 import categoryRouter from "./src/routes/categoryRoutes.js";
 import interviewsRouter from "./src/routes/interviewsRoutes.js"
 import eventRouter from "./src/routes/eventRoutes.js"
+import repositoryRouter from "./src/routes/repositoryRoutes.js"
+import activityRouter from "./src/routes/activityRoutes.js"
+import subactivityRouter from "./src/routes/subactivityRoutes.js"
+import incidentRouter from "./src/routes/incidentRoutes.js"
+import kpiRouter from "./src/routes/kpiRoutes.js"
 
 const app = express()
 
@@ -34,15 +38,27 @@ app.use((req, res, next) => {
     next()
 })
 
-connectDB()
-
 app.use("/api/user", userRouter)
 app.use("/api/agents", agentRouter) // <-- CRUD de Subordinados (Agentes)
 app.use("/api/tasks", taskRouter)   // <-- Registro de KPIs (Tareas)
 app.use("/api/categories", categoryRouter);
 app.use("/api/interviews", interviewsRouter); // <-- CRUD de Entrevistas
 app.use("/api/events", eventRouter);
+app.use("/api/repositories", repositoryRouter)
+app.use("/api/activities", activityRouter)
+app.use("/api/subactivities", subactivityRouter)
+app.use("/api/incidents", incidentRouter)
+app.use("/api/kpis", kpiRouter)
 
-app.listen(PORT, () => {
-    console.log(`Server funcionando en puerto: ${PORT}`)
+const startServer = async () => {
+    await connectDB()
+
+    app.listen(PORT, () => {
+        console.log(`Server funcionando en puerto: ${PORT}`)
+    })
+}
+
+startServer().catch((error) => {
+    console.error("No se pudo iniciar el servidor", error)
+    process.exit(1)
 })

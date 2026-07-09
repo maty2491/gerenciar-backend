@@ -1,30 +1,55 @@
-// src/models/categoryModel.js
-import mongoose from "mongoose";
+import mongoose from "mongoose"
 
 const categorySchema = new mongoose.Schema({
-  name: { 
-    type: String, 
-    required: true, 
-    trim: true 
+  name: {
+    type: String,
+    required: true,
+    trim: true,
+    lowercase: true
   },
-  subTypes: [{ 
-    type: String, 
-    trim: true 
+  label: {
+    type: String,
+    trim: true
+  },
+  subTypes: [{
+    type: String,
+    trim: true
   }],
-  sector: { 
-    type: String, 
-    required: true 
+  sector: {
+    type: String,
+    required: true,
+    trim: true,
+    lowercase: true
   },
-  isDefault: { 
-    type: Boolean, 
-    default: false 
+  group: {
+    type: String,
+    enum: ["despacho", "embargo", "liquidaciones", "subjetivo", "general"],
+    default: "general",
+    required: true
+  },
+  metricType: {
+    type: String,
+    enum: ["numeric", "qualitative"],
+    default: "numeric",
+    required: true
+  },
+  order: {
+    type: Number,
+    default: 0
+  },
+  active: {
+    type: Boolean,
+    default: true
+  },
+  isDefault: {
+    type: Boolean,
+    default: false
   }
-}, { timestamps: true });
+}, { timestamps: true })
 
-// Evita duplicados del mismo nombre en el mismo sector
-categorySchema.index({ name: 1, sector: 1 }, { unique: true });
+categorySchema.index({ name: 1, sector: 1 }, { unique: true })
+categorySchema.index({ sector: 1, group: 1, metricType: 1, active: 1, order: 1 })
 
-// Usamos esta opción resistente para evitar errores de recompilación de Mongoose con nodemon
-const Category = mongoose.models.Category || mongoose.model("Category", categorySchema);
+const Category = mongoose.models.Category || mongoose.model("Category", categorySchema)
 
-export default Category;
+export default Category

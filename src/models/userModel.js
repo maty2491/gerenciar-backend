@@ -1,4 +1,5 @@
 import mongoose from "mongoose"
+import { ALL_USER_SECTORS } from "../constants/sectors.js"
 
 const userSchema = new mongoose.Schema({
     firebaseUid: {
@@ -35,13 +36,14 @@ const userSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ["administrador", "encargado"],
-        default: "encargado",
+        enum: ["administrador", "encargado", "general"],
+        default: "general",
         required: true
     },
     sector: {
         type: String,
         required: true,
+        enum: ALL_USER_SECTORS,
         trim: true,
         lowercase: true
     },
@@ -58,6 +60,12 @@ const userSchema = new mongoose.Schema({
             type: Boolean,
             default: false
         }
+    },
+    status: {
+        type: String,
+        enum: ["activo", "inactivo"],
+        default: "activo",
+        required: true
     }
 }, { timestamps: true })
 

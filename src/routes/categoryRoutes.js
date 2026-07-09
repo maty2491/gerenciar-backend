@@ -1,12 +1,13 @@
 // src/routes/categoryRoutes.js
 import express from "express"
 import { categoryController } from "../controllers/categoryController.js"
-import { verifyTokenMiddleware, requireRoles } from "../middlewares/verifyTokenMiddleware.js"
+import { verifyTokenMiddleware, requireOperationalUser, requireRoles } from "../middlewares/verifyTokenMiddleware.js"
 
 const categoryRouter = express.Router()
 
 // 1. Primero validamos que el usuario esté logueado con Firebase de forma global en este router
 categoryRouter.use(verifyTokenMiddleware)
+categoryRouter.use(requireOperationalUser)
 
 // 2. Obtener categorías: Ambos roles pueden (el controlador discrimina sector o query)
 categoryRouter.get(

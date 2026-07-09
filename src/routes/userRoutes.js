@@ -1,6 +1,8 @@
 import express from "express"
 import {
+    assignManagerToSector,
     createUser,
+    deactivateUser,
     deleteUser,
     getCurrentUser,
     getUser,
@@ -20,6 +22,8 @@ userRouter.post("/logout", logout)
 userRouter.get("/", getUser)
 userRouter.get("/:id", getUserById)
 userRouter.patch("/:id", requireAdminOrSelf, updateUser)
+userRouter.patch("/:id/assign-sector", requireAdmin, assignManagerToSector)
+userRouter.patch("/:id/deactivate", requireAdmin, deactivateUser)
 userRouter.delete("/:id", requireAdmin, deleteUser)
 
 export default userRouter
