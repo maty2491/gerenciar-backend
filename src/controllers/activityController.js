@@ -1,8 +1,10 @@
 import { handleError } from "../utils/errorHandler.js"
 import {
+    approveActivityService,
     createActivityService,
     getActivityByIdService,
     listActivitiesService,
+    rejectActivityService,
     updateActivityService
 } from "../services/activityService.js"
 import {
@@ -41,6 +43,24 @@ export const createActivity = async (req, res) => {
 export const updateActivity = async (req, res) => {
     try {
         const result = await updateActivityService(req.params.id, req.body, req.user)
+        return res.status(200).json(result)
+    } catch (error) {
+        return handleError(error, res)
+    }
+}
+
+export const approveActivity = async (req, res) => {
+    try {
+        const result = await approveActivityService(req.params.id, req.user)
+        return res.status(200).json(result)
+    } catch (error) {
+        return handleError(error, res)
+    }
+}
+
+export const rejectActivity = async (req, res) => {
+    try {
+        const result = await rejectActivityService(req.params.id, req.user)
         return res.status(200).json(result)
     } catch (error) {
         return handleError(error, res)

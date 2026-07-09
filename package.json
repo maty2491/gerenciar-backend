@@ -6,7 +6,8 @@
     "test": "node --test",
     "dev": "node --watch index.js",
     "start": "node index.js",
-    "seed:admin": "node src/scripts/seedAdminUser.js"
+    "seed:admin": "node src/scripts/seedAdminUser.js",
+    "seed:activities": "node src/scripts/seedDefaultActivities.js"
   },
   "keywords": [],
   "author": "",

@@ -24,6 +24,7 @@ export const normalizeActivityPayload = (payload = {}) => {
     if (payload.description !== undefined) normalized.description = normalizeOptionalText(payload.description)
     if (payload.sector !== undefined) normalized.sector = normalizeText(payload.sector)
     if (payload.active !== undefined) normalized.active = Boolean(payload.active)
+    if (payload.origin !== undefined) normalized.origin = normalizeText(payload.origin)
 
     return normalized
 }
@@ -101,6 +102,12 @@ export const assertActivityAccess = (activity, user) => {
     }
 }
 
+export const assertApprovedActivity = (activity) => {
+    if (activity.approvalStatus !== "approved") {
+        throw buildError("La actividad indicada aun no esta aprobada para uso operativo.", 400)
+    }
+}
+
 export const assertSubactivityAccess = (subactivity, user) => {
     if (!subactivity) {
         throw buildError("Subactividad no encontrada o no tienes permisos.", 404)
@@ -138,6 +145,12 @@ export const assertAllowedFields = (payload, allowedFields) => {
     const invalidFields = keys.filter((key) => !allowedFields.includes(key))
     if (invalidFields.length > 0) {
         throw buildError("No hay campos validos para actualizar.", 400)
+    }
+}
+
+export const assertAdminManagedApproval = (payload, user) => {
+    if (user.role !== "administrador" && ("origin" in payload || "approvalStatus" in payload)) {
+        throw buildError("No tienes permisos para modificar origen o estado de aprobacion.", 403)
     }
 }
 

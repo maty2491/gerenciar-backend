@@ -3,6 +3,8 @@ import Activity from "../models/activityModel.js"
 import ActivitySubactivity from "../models/activitySubactivityModel.js"
 import { validateObjectId } from "../utils/validateObjectId.js"
 import {
+    assertAdminManagedApproval,
+    assertApprovedActivity,
     assertActivityAccess,
     assertAllowedFields,
     buildPaginatedResponse,
@@ -17,7 +19,7 @@ import {
     getActivityRelationsService
 } from "./activitySubactivityService.js"
 
-const editableFields = ["name", "description", "active"]
+const editableFields = ["name", "description", "active", "origin"]
 
 const duplicateKeyError = (error, message) => {
     if (error?.code === 11000) {
@@ -35,6 +37,11 @@ const mapActivityListItem = (item) => ({
     name: item.name,
     description: item.description,
     active: item.active,
+    origin: item.origin,
+    approvalStatus: item.approvalStatus,
+    requestedBy: item.requestedBy || null,
+    approvedBy: item.approvedBy || null,
+    approvedAt: item.approvedAt || null,
     subactivitiesCount: item.subactivitiesCount || 0,
     activeSubactivitiesCount: item.activeSubactivitiesCount || 0,
     createdAt: item.createdAt,
@@ -75,10 +82,12 @@ export const listActivitiesService = async (query, user) => {
     const includeInactive = parseBooleanQuery(query.includeInactive, false)
     const sector = resolveSectorScope({ user, requestedSector: query.sector })
     const searchRegex = buildSearchRegex(query.search)
+    const approvalStatus = String(query.approvalStatus || "").trim().toLowerCase()
 
     const filters = {}
     if (sector) filters.sector = sector
     if (!includeInactive) filters.active = true
+    if (approvalStatus) filters.approvalStatus = approvalStatus
     if (searchRegex) {
         filters.$or = [
             { name: searchRegex },
@@ -144,6 +153,11 @@ export const getActivityByIdService = async (id, user) => {
         name: activity.name,
         description: activity.description,
         active: activity.active,
+        origin: activity.origin,
+        approvalStatus: activity.approvalStatus,
+        requestedBy: activity.requestedBy,
+        approvedBy: activity.approvedBy,
+        approvedAt: activity.approvedAt,
         subactivities,
         createdAt: activity.createdAt,
         updatedAt: activity.updatedAt
@@ -164,10 +178,20 @@ export const createActivityService = async (payload, user) => {
             name: normalizedPayload.name,
             description: normalizedPayload.description,
             active: normalizedPayload.active ?? true,
+            origin: user.role === "administrador" ? (normalizedPayload.origin || "sector") : "sector",
+            approvalStatus: user.role === "administrador" ? "approved" : "pending",
+            requestedBy: user._id,
+            approvedBy: user.role === "administrador" ? user._id : undefined,
+            approvedAt: user.role === "administrador" ? new Date() : undefined,
             createdBy: user._id
         }
 
         const subactivityIds = Array.isArray(payload.subactivityIds) ? payload.subactivityIds : []
+        if (user.role !== "administrador" && subactivityIds.length > 0) {
+            const error = new Error("Las actividades pendientes no pueden asociar subactividades hasta ser aprobadas.")
+            error.statusCode = 400
+            throw error
+        }
 
         let activity
 
@@ -214,14 +238,24 @@ export const updateActivityService = async (id, payload, user) => {
     try {
         validateObjectId(id, "ID de actividad")
         const normalizedPayload = normalizeActivityPayload(payload)
+        assertAdminManagedApproval(normalizedPayload, user)
+
+        const allowedFields = user.role === "administrador"
+            ? editableFields
+            : editableFields.filter((field) => field !== "origin")
         const updatePayload = Object.fromEntries(
-            Object.entries(normalizedPayload).filter(([key]) => editableFields.includes(key))
+            Object.entries(normalizedPayload).filter(([key]) => allowedFields.includes(key))
         )
 
-        assertAllowedFields(updatePayload, editableFields)
+        assertAllowedFields(updatePayload, allowedFields)
 
         const activity = await Activity.findById(id)
         assertActivityAccess(activity, user)
+        if (user.role === "encargado" && activity.approvalStatus === "rejected") {
+            const error = new Error("La actividad fue rechazada por un administrador y no puede editarse.")
+            error.statusCode = 400
+            throw error
+        }
 
         Object.assign(activity, updatePayload, { updatedBy: user._id })
         await activity.save()
@@ -253,4 +287,50 @@ export const updateActivityService = async (id, payload, user) => {
     } catch (error) {
         duplicateKeyError(error, "Ya existe una actividad con ese nombre en el sector indicado.")
     }
+}
+
+export const approveActivityService = async (id, user) => {
+    validateObjectId(id, "ID de actividad")
+    const activity = await Activity.findById(id)
+
+    if (!activity) {
+        const error = new Error("Actividad no encontrada.")
+        error.statusCode = 404
+        throw error
+    }
+
+    activity.approvalStatus = "approved"
+    activity.approvedBy = user._id
+    activity.approvedAt = new Date()
+    activity.updatedBy = user._id
+    await activity.save()
+
+    return {
+        activity: await getActivityByIdService(activity._id, user)
+    }
+}
+
+export const rejectActivityService = async (id, user) => {
+    validateObjectId(id, "ID de actividad")
+    const activity = await Activity.findById(id)
+
+    if (!activity) {
+        const error = new Error("Actividad no encontrada.")
+        error.statusCode = 404
+        throw error
+    }
+
+    activity.approvalStatus = "rejected"
+    activity.approvedBy = null
+    activity.approvedAt = null
+    activity.updatedBy = user._id
+    await activity.save()
+
+    return {
+        activity: await getActivityByIdService(activity._id, user)
+    }
+}
+
+export const assertActivityReadyForOperationalUse = (activity) => {
+    assertApprovedActivity(activity)
 }

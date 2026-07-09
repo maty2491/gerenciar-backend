@@ -4,6 +4,7 @@ import Subactivity from "../models/subactivityModel.js"
 import ActivitySubactivity from "../models/activitySubactivityModel.js"
 import { validateObjectId } from "../utils/validateObjectId.js"
 import {
+    assertApprovedActivity,
     assertActivityAccess,
     assertSameSector,
     assertSubactivityAccess,
@@ -49,6 +50,7 @@ export const getActivityRelationsService = async (activityId) => {
 
 export const getActivitySubactivityCatalogService = async (activityId, query, user) => {
     const activity = await getActivityOrThrow(activityId, user)
+    assertApprovedActivity(activity)
     const { page, limit, skip } = parsePagination(query)
     const includeInactive = parseBooleanQuery(query.includeInactive, true)
     const searchRegex = buildSearchRegex(query.search)
@@ -95,6 +97,7 @@ export const getActivitySubactivityCatalogService = async (activityId, query, us
 
 export const assignSubactivitiesToActivityService = async (activityId, payload, user, options = {}) => {
     const activity = options.activity || await getActivityOrThrow(activityId, user)
+    assertApprovedActivity(activity)
     const subactivityIds = payload.subactivityIds || []
     ensureNonEmptyArray(subactivityIds, "subactivityIds")
     subactivityIds.forEach((id) => validateObjectId(id, "ID de subactividad"))
@@ -169,6 +172,7 @@ export const assignSubactivitiesToActivityService = async (activityId, payload, 
 
 export const toggleActivitySubactivityRelationService = async (activityId, subactivityId, payload, user) => {
     const activity = await getActivityOrThrow(activityId, user)
+    assertApprovedActivity(activity)
     validateObjectId(subactivityId, "ID de subactividad")
 
     if (payload.active === undefined) {

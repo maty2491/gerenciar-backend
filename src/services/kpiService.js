@@ -52,7 +52,11 @@ const getAuthorizedAgent = async (agentId, user) => {
 }
 
 const getSectorCatalog = async (sectorId) => {
-    const activities = await Activity.find({ sector: sectorId, active: true }).sort({ name: 1 })
+    const activities = await Activity.find({
+        sector: sectorId,
+        active: true,
+        approvalStatus: "approved"
+    }).sort({ name: 1 })
     const activityIds = activities.map((activity) => activity._id)
 
     const relations = activityIds.length === 0

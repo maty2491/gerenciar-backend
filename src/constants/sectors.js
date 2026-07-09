@@ -6,7 +6,8 @@ export const OPERATIVE_SECTORS = [
     "corrientes",
     "recepcion",
     "administracion",
-    "rrhh"
+    "rrhh",
+    "inicio"
 
 ]
 

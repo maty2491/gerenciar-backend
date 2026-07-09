@@ -35,7 +35,7 @@ const subactivitySchema = new mongoose.Schema({
     collection: "subactivities"
 })
 
-subactivitySchema.index({ name: 1 }, { unique: true })
+subactivitySchema.index({ sector: 1, name: 1 }, { unique: true })
 subactivitySchema.index({ sector: 1, active: 1, name: 1 })
 
 const Subactivity = mongoose.models.Subactivity || mongoose.model("Subactivity", subactivitySchema)
