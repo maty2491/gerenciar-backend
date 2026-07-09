@@ -32,6 +32,15 @@ const normalizeAppEnv = (value) => {
     throw new Error(`APP_ENV invalido: "${value}". Valores permitidos: dev, prod`)
 }
 
+const normalizeBoolean = (value, defaultValue = false) => {
+    if (value === undefined) {
+        return defaultValue
+    }
+
+    const normalized = String(value).trim().toLowerCase()
+    return normalized === "true" || normalized === "1" || normalized === "yes"
+}
+
 export const APP_ENV = normalizeAppEnv(process.env.APP_ENV)
 export const PORT = process.env.PORT || 3001
 export const MONGODB_URI =
@@ -42,3 +51,4 @@ export const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID
 export const FIREBASE_CLIENT_EMAIL = process.env.FIREBASE_CLIENT_EMAIL
 export const FIREBASE_PRIVATE_KEY = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n")
 export const FIREBASE_SERVICE_ACCOUNT_PATH = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
+export const AUTO_SEED_DEFAULT_ACTIVITIES = normalizeBoolean(process.env.AUTO_SEED_DEFAULT_ACTIVITIES, false)

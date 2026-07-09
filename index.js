@@ -1,5 +1,5 @@
 import express from "express"
-import { PORT } from "./src/config/config.js"
+import { AUTO_SEED_DEFAULT_ACTIVITIES, PORT } from "./src/config/config.js"
 import { connectDB } from "./src/config/db.js"
 import userRouter from "./src/routes/userRoutes.js"
 import agentRouter from "./src/routes/agentRoutes.js"
@@ -12,6 +12,7 @@ import activityRouter from "./src/routes/activityRoutes.js"
 import subactivityRouter from "./src/routes/subactivityRoutes.js"
 import incidentRouter from "./src/routes/incidentRoutes.js"
 import kpiRouter from "./src/routes/kpiRoutes.js"
+import { ensureDefaultActivitiesService } from "./src/services/defaultActivitySeedService.js"
 
 const app = express()
 
@@ -78,6 +79,11 @@ app.use("/api/kpis", kpiRouter)
 
 const startServer = async () => {
     await connectDB()
+
+    if (AUTO_SEED_DEFAULT_ACTIVITIES) {
+        const result = await ensureDefaultActivitiesService()
+        console.log("Seed automatico de actividades base ejecutado", result)
+    }
 
     app.listen(PORT, () => {
         console.log(`Server funcionando en puerto: ${PORT}`)
